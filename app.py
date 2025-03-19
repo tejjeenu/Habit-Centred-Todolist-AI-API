@@ -29,7 +29,7 @@ prompt_extract = PromptTemplate.from_template(
 client = chromadb.PersistentClient('vectorstore')
 collection = client.get_or_create_collection(name="habitfinder")
 
-@app.route('/')
+@app.route('/hello')
 def home():
     #data = request.get_json()
 
