@@ -1,2 +1,6 @@
 Flask
 Gunicorn
+flask-cors
+langchain-groq
+langchain-core
+chromadb
