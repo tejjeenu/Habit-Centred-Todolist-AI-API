@@ -3,7 +3,6 @@ from flask_cors import CORS
 
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
-import pandas as pd
 import uuid
 import chromadb
 
