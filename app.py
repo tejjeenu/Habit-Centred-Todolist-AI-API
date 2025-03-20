@@ -6,6 +6,8 @@ from langchain_core.prompts import PromptTemplate
 import uuid
 import chromadb
 
+from datetime import datetime, timedelta
+
 app = Flask(__name__)
 CORS(app)  # Enable CORS
 
@@ -29,10 +31,123 @@ prompt_extract = PromptTemplate.from_template(
 client = chromadb.PersistentClient('vectorstore')
 collection = client.get_or_create_collection(name="habitfinder")
 
-@app.route('/hello')
+today = datetime.today()
+formatted_date = today.strftime("%d/%m/%Y")
+
+class Task:
+    def __init__(self, name, duration=None, start_time=None, end_time=None):
+        self.name = name
+        self.duration = timedelta(minutes=int(duration)) if duration else None
+        self.start_time = datetime.strptime(start_time, "%H:%M") if start_time else None
+        self.end_time = datetime.strptime(end_time, "%H:%M") if end_time else None
+
+        # Automatically calculate missing fields
+        if self.start_time and self.end_time:
+            self.duration = self.end_time - self.start_time
+        elif self.start_time and self.duration:
+            self.end_time = self.start_time + self.duration
+        elif self.end_time and self.duration:
+            self.start_time = self.end_time - self.duration
+
+        # Validation
+        if self.start_time and self.end_time and self.start_time >= self.end_time:
+            raise ValueError(f"Task '{name}' has an invalid time range (start >= end).")
+        
+class Scheduler:
+    def __init__(self, day_start="06:00", day_end="22:00"):
+        self.day_start = datetime.strptime(day_start, "%H:%M")
+        self.day_end = datetime.strptime(day_end, "%H:%M")
+        self.tasks = []
+        self.task_queue = []
+
+    def add_task(self, task):
+        self.task_queue.append(task)
+
+    def process_tasks(self):
+        self.task_queue.sort(key=lambda t: (t.start_time is None, t.start_time))
+
+        for task in self.task_queue:
+            if task.start_time and task.end_time:
+                for existing_task in self.tasks:
+                    if not (task.end_time <= existing_task.start_time or task.start_time >= existing_task.end_time):
+                        raise ValueError(f"Task '{task.name}' overlaps with existing task '{existing_task.name}'")
+                self.tasks.append(task)
+            else:
+                slot_found = False
+                current_time = self.day_start
+                while current_time + task.duration <= self.day_end:
+                    if all(
+                        current_time + task.duration <= existing_task.start_time or
+                        current_time >= existing_task.end_time for existing_task in self.tasks if existing_task.start_time and existing_task.end_time
+                    ):
+                        task.start_time = current_time
+                        task.end_time = current_time + task.duration
+                        slot_found = True
+                        break
+                    current_time += timedelta(minutes=1)
+
+                if not slot_found:
+                    raise ValueError(f"No available slot for task '{task.name}'.")
+                self.tasks.append(task)
+
+        self.tasks.sort(key=lambda t: t.start_time)
+
+    def get_schedule(self):
+        schedule = []
+        for task in self.tasks:
+            schedule.append(f"{task.name}~{task.start_time.strftime('%H:%M')} - {task.end_time.strftime('%H:%M')}")
+        return schedule
+
+@app.route('/api/scheduletasks', methods=['POST'])
+def handle_post():
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No JSON data received'}), 400
+    
+    tasknames = [] if data.get('tasknames') == '' else data.get('tasknames').split("|")
+    starttimes = [] if data.get('starttimes') == '' else data.get('starttimes').split("|")
+    endtimes = [] if data.get('endtimes') == '' else data.get('endtimes').split("|")
+    durations = [] if data.get('durations') == '' else data.get('durations').split("|")
+
+    scheduler = Scheduler()
+    print(tasknames)
+    print(starttimes)
+    print(endtimes)
+    print(durations)
+
+    tasksadded = False
+
+    for i in range(len(tasknames)):
+        if((durations[i] != '*') or (durations[i] == '*' and starttimes[i] != '*' and endtimes[i] != '*')):
+            scheduler.add_task(Task(
+                tasknames[i],
+                duration=None if durations[i] == '*' else durations[i],
+                start_time=None if starttimes[i] == '*' else starttimes[i],
+                end_time=None if endtimes[i] == '*' else endtimes[i]
+            ))
+            tasksadded = True
+
+    schedule = []
+    if(tasksadded == True):
+        scheduler.process_tasks()
+        schedule = scheduler.get_schedule()
+    #add processing in between for creating tasks from them and then getting schedule output from them
+
+    # Example: Just echo back the received board
+    response = {
+        'schedule':"|".join(schedule)#this would be the scheduled tasks seperated by |, then in react it will seperate out and format accordingly
+    }
+
+    print(response)
+
+    return jsonify(response), 200
+
+
+@app.route('/api/chromatest')
 def home():
     #data = request.get_json()
-
+    
     goalmessage = "Im really ugly and I want to be more extroverted"
 
     chain_extract = prompt_extract | llm 
