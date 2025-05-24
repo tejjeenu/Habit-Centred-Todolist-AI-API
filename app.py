@@ -3,13 +3,32 @@ from flask_cors import CORS
 
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
+import pandas as pd
 import uuid
 import chromadb
 
-from datetime import datetime, timedelta
-
 app = Flask(__name__)
 CORS(app)  # Enable CORS
+
+from datetime import datetime, timedelta
+
+today = datetime.today()
+formatted_date = today.strftime("%d/%m/%Y")
+
+habitsummary = []
+
+def extractfromtree(goal):
+    global habitsummary
+
+    currenthabitsummary = collection.query(query_texts=goal, n_results=1).get('metadatas', [])
+
+    for arr in currenthabitsummary:
+        if(arr[0]['habits'] == '*'):
+            childrengoals = arr[0]['children'].split('-')
+            extractfromtree(childrengoals)
+        else:
+            currenthabitsummary = arr[0]['habits'].split('-')
+            habitsummary.extend(currenthabitsummary)
 
 llm = ChatGroq(
     temperature=0, 
@@ -29,11 +48,11 @@ prompt_extract = PromptTemplate.from_template(
 )
 
 client = chromadb.PersistentClient('vectorstore')
-collection = client.get_or_create_collection(name="habitfinder")
+collection = client.get_or_create_collection(name="tejjeenuhabits")
 
-today = datetime.today()
-formatted_date = today.strftime("%d/%m/%Y")
+print(collection)
 
+# Task and Scheduler Classes
 class Task:
     def __init__(self, name, duration=None, start_time=None, end_time=None):
         self.name = name
@@ -54,7 +73,7 @@ class Task:
             raise ValueError(f"Task '{name}' has an invalid time range (start >= end).")
         
 class Scheduler:
-    def __init__(self, day_start="06:00", day_end="22:00"):
+    def __init__(self, day_start, day_end):
         self.day_start = datetime.strptime(day_start, "%H:%M")
         self.day_end = datetime.strptime(day_end, "%H:%M")
         self.tasks = []
@@ -109,12 +128,16 @@ def handle_post():
     starttimes = [] if data.get('starttimes') == '' else data.get('starttimes').split("|")
     endtimes = [] if data.get('endtimes') == '' else data.get('endtimes').split("|")
     durations = [] if data.get('durations') == '' else data.get('durations').split("|")
+    waketime = '06:00' if data.get('waketime') == '*' else data.get('waketime')
+    sleeptime = '22:00' if data.get('sleeptime') == '*' else data.get('sleeptime')
 
-    scheduler = Scheduler()
+    scheduler = Scheduler(waketime, sleeptime)
     print(tasknames)
     print(starttimes)
     print(endtimes)
     print(durations)
+    print(waketime)
+    print(sleeptime)
 
     tasksadded = False
 
@@ -143,12 +166,16 @@ def handle_post():
 
     return jsonify(response), 200
 
-
-@app.route('/api/chromatest')
+@app.route('/api/inferhabits', methods=['POST'])
 def home():
-    #data = request.get_json()
+    data = request.get_json()
+    goalmessage = data.get('goalmessage')
     
-    goalmessage = "Im really ugly and I want to be more extroverted"
+    global habitsummary
+
+    habitsummary = []
+
+    #goalmessage = "Im really ugly and I want to be more extroverted"
 
     chain_extract = prompt_extract | llm 
     res = chain_extract.invoke(input={'page_data':goalmessage})
@@ -159,11 +186,16 @@ def home():
     goalsummary = [item.strip() for item in goalsummary_raw]
     print(goalsummary)
             
-    habitsummary = collection.query(query_texts=goalsummary, n_results=1).get('metadatas', [])
-    print(str(habitsummary))
+    #habitsummary = collection.query(query_texts=goalsummary, n_results=1).get('metadatas', [])
+    #print(str(habitsummary))
+
+    extractfromtree(goalsummary)
+
+    unique_habits = set(habitsummary)
+    habitlist = list(unique_habits)
 
     response = {
-        'habits':str(habitsummary)
+        'habits':'|'.join(habitlist)
     }
 
     print(response)
