@@ -3,8 +3,7 @@ from flask_cors import CORS
 
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
-import uuid
-import chromadb
+from pinecone import Pinecone, ServerlessSpec
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS
@@ -14,25 +13,39 @@ from datetime import datetime, timedelta
 today = datetime.today()
 formatted_date = today.strftime("%d/%m/%Y")
 
-habitsummary = []
-
 def extractfromtree(goal):
-    global habitsummary
+    habits = []
+    results = index.search(
+    namespace="__default__",
+    query={
+        "top_k": 1,
+        "inputs": {
+            'text': goal
+        }
+    })
 
-    currenthabitsummary = collection.query(query_texts=goal, n_results=1).get('metadatas', [])
+    if(results['result']['hits'][0]['fields']['habit'] == '*'):
+        childrengoals = results['result']['hits'][0]['fields']['children'].split('-')
+        for child in childrengoals:
+            childhabits = extractfromtree(child)
+            habits.extend(childhabits)
+    else:
+        habits.extend(results['result']['hits'][0]['fields']['habit'].split('-'))
 
-    for arr in currenthabitsummary:
-        if(arr[0]['habits'] == '*'):
-            childrengoals = arr[0]['children'].split('-')
-            extractfromtree(childrengoals)
-        else:
-            currenthabitsummary = arr[0]['habits'].split('-')
-            habitsummary.extend(currenthabitsummary)
+    return habits
+
+def gethabitsfromtree(goals):
+    
+    allhabits = []
+    for goal in goals:
+        goalhabits = extractfromtree(goal)
+        allhabits.extend(goalhabits)
+    return list(set(allhabits))
 
 llm = ChatGroq(
     temperature=0, 
-    groq_api_key='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', 
-    model_name="llama-3.3-70b-versatile"
+    groq_api_key=GROQ_API_KEY, 
+    model_name="meta-llama/llama-4-maverick-17b-128e-instruct"
 )
 
 prompt_extract = PromptTemplate.from_template(
@@ -46,10 +59,9 @@ prompt_extract = PromptTemplate.from_template(
         """
 )
 
-client = chromadb.PersistentClient('vectorstore')
-collection = client.get_or_create_collection(name="tejjeenuhabits")
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index = pc.Index("tejhabits")
 
-print(collection)
 
 # Task and Scheduler Classes
 class Task:
@@ -169,12 +181,6 @@ def handle_post():
 def home():
     data = request.get_json()
     goalmessage = data.get('goalmessage')
-    
-    global habitsummary
-
-    habitsummary = []
-
-    #goalmessage = "Im really ugly and I want to be more extroverted"
 
     chain_extract = prompt_extract | llm 
     res = chain_extract.invoke(input={'page_data':goalmessage})
@@ -184,14 +190,8 @@ def home():
     goalsummary_raw = res.content.split(',')
     goalsummary = [item.strip() for item in goalsummary_raw]
     print(goalsummary)
-            
-    #habitsummary = collection.query(query_texts=goalsummary, n_results=1).get('metadatas', [])
-    #print(str(habitsummary))
 
-    extractfromtree(goalsummary)
-
-    unique_habits = set(habitsummary)
-    habitlist = list(unique_habits)
+    habitlist = gethabitsfromtree(goalsummary)
 
     response = {
         'habits':'|'.join(habitlist)
@@ -200,5 +200,3 @@ def home():
     print(response)
 
     return jsonify(response), 200
-
-
