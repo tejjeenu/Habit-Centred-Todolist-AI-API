@@ -3,4 +3,4 @@ Gunicorn
 flask-cors
 langchain-groq
 langchain-core
-chromadb
+pinecone
