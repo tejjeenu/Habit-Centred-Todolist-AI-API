@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-
+import os
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from pinecone import Pinecone, ServerlessSpec
@@ -44,7 +44,7 @@ def gethabitsfromtree(goals):
 
 llm = ChatGroq(
     temperature=0, 
-    groq_api_key=GROQ_API_KEY, 
+    groq_api_key=os.environ.get("GROQ_API_KEY"), 
     model_name="meta-llama/llama-4-maverick-17b-128e-instruct"
 )
 
@@ -59,7 +59,7 @@ prompt_extract = PromptTemplate.from_template(
         """
 )
 
-pc = Pinecone(api_key=PINECONE_API_KEY)
+pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
 index = pc.Index("tejhabits")
 
 
